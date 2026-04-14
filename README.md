@@ -65,4 +65,4 @@ rm -rf /tmp/opencode-skills
 
 ## Sources
 
-These skills were derived from analysis of the [EPICS base 7.0](https://github.com/epics-base/epics-base) and [asyn 4.45](https://github.com/epics-modules/asyn) source code, including record type definitions, build system templates, device support headers, CA/PVA client APIs, libCom headers, asynPortDriver class, asyn device support, devGpib framework, and example programs.
+These skills were derived from analysis of the [EPICS base 7.0](https://github.com/epics-base/epics-base), [asyn 4.45](https://github.com/epics-modules/asyn), and [StreamDevice 2.8.25+](https://github.com/paulscherrerinstitute/StreamDevice) source code and [documentation](https://paulscherrerinstitute.github.io/StreamDevice/), including record type definitions, build system templates, device support headers, CA/PVA client APIs, libCom headers, asynPortDriver class, asyn device support, devGpib framework, StreamDevice protocol syntax and format converters, and example programs.
