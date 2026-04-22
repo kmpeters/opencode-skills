@@ -10,9 +10,151 @@ You are an expert at writing EPICS model-3 motor drivers. A model-3 motor driver
 1. **Controller class** -- inherits from `asynMotorController` (which inherits from `asynPortDriver`). One instance per physical controller. Manages axes, poller thread, and hardware communication.
 2. **Axis class** -- inherits from `asynMotorAxis`. One instance per motor axis. Implements motion commands and status polling.
 
+Motor driver modules are designed to build either as a submodule of motor or as a standalone module.
+
 ---
 
-## 1. Headers and Linking
+## 1. Creating a New Motor Driver Module
+
+### 1.1 Using createMotorDriverModule (Recommended)
+
+The `createMotorDriverModule.py` script creates a new module from the `motorExample` template:
+
+```bash
+# Install the script
+git clone https://github.com/epics-motor/createMotorDriverModule.git
+
+# Simple: module name = driver name = class name
+python createMotorDriverModule/createMotorDriverModule.py Vendor
+# Creates: motorVendor/
+
+# Two-name: separate module and driver names
+python createMotorDriverModule/createMotorDriverModule.py AcsMotion --driver SPiiPlus
+# Creates: motorAcsMotion/ with SPiiPlusDriver.cpp, SPiiPlusDriver.h
+
+# Three-name: separate module, driver filename, and C++ class names
+python createMotorDriverModule/createMotorDriverModule.py VMC --driver vmc --class VirtualMotor
+# Creates: motorVMC/ with vmcDriver.cpp, vmcDriver.h,
+#          C++ classes: VirtualMotorController, VirtualMotorAxis
+```
+
+**Arguments:**
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `ModuleName` | Yes | Module name. Output directory is `motor<ModuleName>`. |
+| `--driver Name` | No | Controls source filenames (`.cpp`, `.h`, `.dbd`). Defaults to ModuleName. |
+| `--class Name` | No | Controls C++ class names and iocsh function names. Defaults to `--driver` value. |
+| `--url URL` | No | Git URL for motorExample template. Defaults to GitHub. |
+
+### 1.2 Name Derivation
+
+The script uses CamelCase-aware lowering for module names (only first character lowered):
+
+| Input | lowercase | title-case | UPPERCASE |
+|-------|-----------|------------|-----------|
+| `Vendor` | `vendor` | `Vendor` | `VENDOR` |
+| `AcsMotion` | `acsMotion` | `AcsMotion` | `ACSMOTION` |
+| `VMC` | `vmc` | `VMC` | `VMC` |
+
+### 1.3 Resulting Module Structure
+
+```
+motorVendor/
+  configure/
+    RELEASE                     # Dual-mode: works inside motor or standalone
+    CONFIG_SITE                 # BUILD_IOCS = NO by default
+    EXAMPLE_RELEASE.local       # Copy to RELEASE.local, set MOTOR path
+    EXAMPLE_CONFIG_SITE.local   # Copy to CONFIG_SITE.local, set BUILD_IOCS = YES
+  vendorApp/
+    src/
+      VendorDriver.h            # Controller and axis class declarations
+      VendorDriver.cpp          # Driver implementation (edit this)
+      Vendor.dbd                # registrar(VendorMotorRegister)
+      Makefile                  # Builds library "Vendor", links motor + asyn
+    Db/
+      Makefile                  # Add driver-specific .db/.template files here
+    iocsh/
+      motorVendor.iocsh         # Reusable iocsh snippet for loading the driver
+      EXAMPLE_motorVendor.substitutions  # Example motor substitutions
+      Makefile
+  iocs/
+    vendorIOC/                  # Example IOC for testing
+      configure/
+        RELEASE                 # Dual-mode RELEASE for the IOC
+        EXAMPLE_RELEASE.local   # Copy and configure for standalone build
+      vendorApp/src/
+        Makefile                # Links Vendor + motor + asyn libraries
+      iocBoot/iocVendor/
+        st.cmd                  # Example startup script
+        vendor.iocsh            # Loads motorVendor.iocsh with defaults
+        settings.iocsh          # PREFIX definition
+```
+
+### 1.4 Dual-Build Mode (Standalone vs Motor Submodule)
+
+Motor driver modules support two build modes through a special `configure/RELEASE` pattern:
+
+```makefile
+# configure/RELEASE
+# Use motor/module's generated release file when building inside motor
+-include $(TOP)/../RELEASE.$(EPICS_HOST_ARCH).local
+# Use motorVendor's RELEASE.local when building outside motor
+-include $(TOP)/configure/RELEASE.local
+```
+
+**As a motor submodule:** Place the module directory under `motor/modules/`. The motor build system provides RELEASE paths automatically via `RELEASE.$(EPICS_HOST_ARCH).local`.
+
+**As a standalone module:** Copy `EXAMPLE_RELEASE.local` to `RELEASE.local` and set the paths:
+
+```makefile
+# configure/RELEASE.local
+MOTOR=/path/to/motor
+-include $(MOTOR)/modules/RELEASE.$(EPICS_HOST_ARCH).local
+MOTOR_VENDOR=/path/to/motorVendor
+```
+
+To build the example IOC, also copy `EXAMPLE_CONFIG_SITE.local` to `CONFIG_SITE.local`:
+
+```makefile
+# configure/CONFIG_SITE.local
+-include $(MOTOR)/configure/CONFIG_SITE
+CHECK_RELEASE = WARN
+BUILD_IOCS = YES
+```
+
+### 1.5 The iocsh Snippet
+
+Each motor driver module includes a reusable `.iocsh` file that configures the driver with macro parameters:
+
+```bash
+# motorVendor.iocsh -- loaded from an IOC's st.cmd
+# Macros: INSTANCE, IP_ADDR, TCP_PORT, NUM_AXES, MOVING_POLL, IDLE_POLL, SUB, etc.
+
+drvAsynIPPortConfigure("$(INSTANCE)_ETH","$(IP_ADDR=127.0.0.1):$(TCP_PORT=12345)", 0, 0, 0)
+asynSetTraceMask("$(INSTANCE)_ETH", 0, $(TRACE_MASK=ERROR))
+asynSetTraceIOMask("$(INSTANCE)_ETH", 0, $(TRACEIO_MASK=ASCII))
+asynOctetSetInputEos("$(INSTANCE)_ETH",0,"\r\n")
+asynOctetSetOutputEos("$(INSTANCE)_ETH",0,"\r")
+
+VendorMotorCreateController("$(INSTANCE)", "$(INSTANCE)_ETH", $(NUM_AXES=8), $(MOVING_POLL=100), $(IDLE_POLL=1000))
+
+dbLoadTemplate("$(SUB=$(MOTOR_VENDOR)/iocsh/EXAMPLE_motorVendor.substitutions)", "P=$(PREFIX),PORT=$(INSTANCE)")
+dbLoadRecords("$(ASYN)/db/asynRecord.db","P=$(PREFIX),R=$(ASYN_RECORD=asyn_1),PORT=$(INSTANCE)_ETH,ADDR=0,OMAX=0,IMAX=0")
+```
+
+### 1.6 After Module Creation
+
+1. Edit the driver source files (`VendorDriver.h`, `VendorDriver.cpp`) to implement your hardware protocol
+2. Update the `.iocsh` file with the correct communication parameters (TCP port, EOS strings, etc.)
+3. Update the example `.substitutions` file with appropriate motor parameters
+4. Add any driver-specific database templates to `vendorApp/Db/`
+5. Configure `RELEASE.local` and `CONFIG_SITE.local` from the EXAMPLE files
+6. Build with `make`
+
+---
+
+## 2. Headers and Linking (src/Makefile)
 
 ```cpp
 #include "asynMotorController.h"
@@ -40,9 +182,9 @@ No `device()` declaration is needed -- the base class provides `device(motor, IN
 
 ---
 
-## 2. Axis Class
+## 3. Axis Class
 
-### 2.1 Class Declaration
+### 3.1 Class Declaration
 
 ```cpp
 class myMotorAxis : public asynMotorAxis {
@@ -81,7 +223,7 @@ private:
 };
 ```
 
-### 2.2 Axis Constructor
+### 3.2 Axis Constructor
 
 ```cpp
 myMotorAxis::myMotorAxis(myMotorController *pC, int axisNo)
@@ -98,7 +240,7 @@ myMotorAxis::myMotorAxis(myMotorController *pC, int axisNo)
 }
 ```
 
-### 2.3 move() -- Absolute and Relative Moves
+### 3.3 move() -- Absolute and Relative Moves
 
 ```cpp
 asynStatus myMotorAxis::move(double position, int relative,
@@ -125,7 +267,7 @@ asynStatus myMotorAxis::move(double position, int relative,
 }
 ```
 
-### 2.4 home() -- Home Search
+### 3.4 home() -- Home Search
 
 ```cpp
 asynStatus myMotorAxis::home(double minVelocity, double maxVelocity,
@@ -138,7 +280,7 @@ asynStatus myMotorAxis::home(double minVelocity, double maxVelocity,
 }
 ```
 
-### 2.5 stop() -- Stop Motion
+### 3.5 stop() -- Stop Motion
 
 ```cpp
 asynStatus myMotorAxis::stop(double acceleration)
@@ -148,7 +290,7 @@ asynStatus myMotorAxis::stop(double acceleration)
 }
 ```
 
-### 2.6 moveVelocity() -- Jog
+### 3.6 moveVelocity() -- Jog
 
 ```cpp
 asynStatus myMotorAxis::moveVelocity(double minVelocity, double maxVelocity,
@@ -161,7 +303,7 @@ asynStatus myMotorAxis::moveVelocity(double minVelocity, double maxVelocity,
 }
 ```
 
-### 2.7 poll() -- Status Polling (CRITICAL)
+### 3.7 poll() -- Status Polling (CRITICAL)
 
 This is the most important method. It is called periodically by the poller thread. It must query hardware status and update all motor status parameters.
 
@@ -234,7 +376,7 @@ asynStatus myMotorAxis::poll(bool *moving)
 }
 ```
 
-### 2.8 setPosition() -- Define Current Position
+### 3.8 setPosition() -- Define Current Position
 
 ```cpp
 asynStatus myMotorAxis::setPosition(double position)
@@ -244,7 +386,7 @@ asynStatus myMotorAxis::setPosition(double position)
 }
 ```
 
-### 2.9 setClosedLoop() -- Enable/Disable Servo
+### 3.9 setClosedLoop() -- Enable/Disable Servo
 
 ```cpp
 asynStatus myMotorAxis::setClosedLoop(bool closedLoop)
@@ -257,9 +399,9 @@ asynStatus myMotorAxis::setClosedLoop(bool closedLoop)
 
 ---
 
-## 3. Controller Class
+## 4. Controller Class
 
-### 3.1 Class Declaration
+### 4.1 Class Declaration
 
 ```cpp
 class myMotorController : public asynMotorController {
@@ -292,7 +434,7 @@ protected:
 };
 ```
 
-### 3.2 Controller Constructor
+### 4.2 Controller Constructor
 
 ```cpp
 myMotorController::myMotorController(const char *portName,
@@ -334,7 +476,7 @@ myMotorController::myMotorController(const char *portName,
 - Axis objects are created with `new` and stored in the base class `pAxes_` array.
 - `startPoller()` launches the polling thread that calls `poll()` on each axis.
 
-### 3.3 Convenience I/O Methods
+### 4.3 Convenience I/O Methods
 
 The base class provides these methods using `outString_` and `inString_` buffers and `pasynUserController_`:
 
@@ -367,7 +509,7 @@ if (status == asynSuccess) {
 
 The default timeout is `DEFAULT_CONTROLLER_TIMEOUT` (2.0 seconds). The buffer size is `MAX_CONTROLLER_STRING_SIZE` (256 bytes).
 
-### 3.4 getAxis() -- Covariant Return
+### 4.4 getAxis() -- Covariant Return
 
 ```cpp
 myMotorAxis* myMotorController::getAxis(asynUser *pasynUser)
@@ -381,7 +523,7 @@ myMotorAxis* myMotorController::getAxis(int axisNo)
 }
 ```
 
-### 3.5 writeInt32() -- Handle Driver-Specific Commands
+### 4.5 writeInt32() -- Handle Driver-Specific Commands
 
 ```cpp
 asynStatus myMotorController::writeInt32(asynUser *pasynUser, epicsInt32 value)
@@ -404,7 +546,7 @@ asynStatus myMotorController::writeInt32(asynUser *pasynUser, epicsInt32 value)
 }
 ```
 
-### 3.6 report()
+### 4.6 report()
 
 ```cpp
 void myMotorController::report(FILE *fp, int level)
@@ -420,11 +562,11 @@ void myMotorController::report(FILE *fp, int level)
 
 ---
 
-## 4. Motor Status Parameters
+## 5. Motor Status Parameters
 
 The base class pre-defines these parameter indices. Use them in `poll()` and motion commands:
 
-### 4.1 Position and Velocity
+### 5.1 Position and Velocity
 
 | Parameter Index | drvInfo String | Type | Description |
 |----------------|----------------|------|-------------|
@@ -432,7 +574,7 @@ The base class pre-defines these parameter indices. Use them in `poll()` and mot
 | `motorEncoderPosition_` | `MOTOR_ENCODER_POSITION` | Float64 | Encoder position (steps) |
 | `motorActVelocity_` | `MOTOR_ACT_VELOCITY` | Float64 | Actual velocity |
 
-### 4.2 Status Bits (Integer, 0 or 1)
+### 5.2 Status Bits (Integer, 0 or 1)
 
 | Parameter Index | drvInfo String | Description |
 |----------------|----------------|-------------|
@@ -452,7 +594,7 @@ The base class pre-defines these parameter indices. Use them in `poll()` and mot
 | `motorStatusSlip_` | `MOTOR_STATUS_SLIP` | Encoder slip detected |
 | `motorStatusAtHome_` | `MOTOR_STATUS_AT_HOME` | At home position |
 
-### 4.3 Motor Record Feedback Parameters
+### 5.3 Motor Record Feedback Parameters
 
 These are set by the database auxiliary records and can be read by the driver:
 
@@ -462,7 +604,7 @@ These are set by the database auxiliary records and can be read by the driver:
 | `motorRecDirection_` | `MOTOR_REC_DIRECTION` | Motor record DIR value |
 | `motorRecOffset_` | `MOTOR_REC_OFFSET` | Motor record OFF value |
 
-### 4.4 Power Management Parameters
+### 5.4 Power Management Parameters
 
 | Parameter Index | drvInfo String | Description |
 |----------------|----------------|-------------|
@@ -474,7 +616,7 @@ These are set by the database auxiliary records and can be read by the driver:
 
 ---
 
-## 5. The Poller Thread
+## 6. The Poller Thread
 
 The base class provides a poller thread that calls `poll()` on each axis. Configure it in the constructor:
 
@@ -490,7 +632,7 @@ The poller automatically switches between fast and slow polling based on axis mo
 
 ---
 
-## 6. IOC Shell Registration
+## 7. IOC Shell Registration
 
 ```cpp
 /* At the bottom of myMotorDriver.cpp */
@@ -534,7 +676,7 @@ epicsExportRegistrar(myMotorRegister);
 
 ---
 
-## 7. Complete Minimal Driver
+## 8. Complete Minimal Driver
 
 ```cpp
 /* myMotorDriver.cpp */
@@ -721,7 +863,7 @@ epicsExportRegistrar(myMotorRegister);
 
 ---
 
-## 8. Key Rules and Pitfalls
+## 9. Key Rules and Pitfalls
 
 1. **`poll()` must always call `callParamCallbacks()`** at the end, even on communication failure. Without it, the motor record never gets status updates.
 

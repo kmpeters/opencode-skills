@@ -17,7 +17,7 @@ A collection of [OpenCode](https://opencode.ai) skills for EPICS (Experimental P
 | `asyn-database` | Write database records for asyn drivers -- DTYP choices, INP/OUT link format, setpoint/readback patterns, I/O Intr scanning, and array records |
 | `asyn-port-config` | Configure asyn ports in st.cmd -- IP, serial, and server ports, serial options, EOS settings, trace control, and diagnostic commands |
 | `asyn-gpib` | Write GPIB/SCPI device support using the devGpib framework -- gpibCmd command tables, DSET macros, EFAST tables, and custom conversions |
-| `motor-driver` | Write model-3 asyn motor drivers -- asynMotorController and asynMotorAxis subclasses with move, home, stop, poll, status bits, and convenience I/O |
+| `motor-driver` | Write model-3 asyn motor drivers -- module creation with createMotorDriverModule, dual-build mode, asynMotorController and asynMotorAxis subclasses, and iocsh snippets |
 | `motor-ioc` | Configure and deploy motor IOCs -- database templates, substitution files, motor record fields, st.cmd startup, motorUtil, and driver submodule integration |
 | `areadetector-driver` | Write areaDetector camera/detector drivers -- ADDriver subclasses, NDArray allocation and lifecycle, acquisition thread patterns, image modes, and shutter control |
 | `areadetector-ioc` | Configure and deploy areaDetector IOCs -- plugin chain configuration, database templates, commonPlugins.cmd, file writing patterns, and build configuration |
