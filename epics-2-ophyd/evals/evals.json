@@ -1,0 +1,35 @@
+{
+  "skill_name": "epics-2-ophyd",
+  "evals": [
+    {
+      "id": 1,
+      "name": "both-repos-given-happy-path",
+      "prompt": "Wrap the EPICS IOC at /Users/ecodrea/epics_iocs/urRobot in an ophyd device for my BITS instrument package at /Users/ecodrea/8id-bits/src/id8_e. The deployed prefix is RobocartUR5:.",
+      "expected_output": "Skill (1) confirms id8_e is the target package, (2) reads 2-3 existing modules in id8_e/devices/ to learn conventions and detect ophyd flavor (classic threaded), (3) runs scripts/parse_ioc.py against the IOC to enumerate records + screen PVs, (4) PROPOSES a curated PV set (motors + on-screen PVs + setpoint/RBV pairs) with one-line reasoning per group, asks for edits before writing, (5) writes <id8_e>/devices/<module>.py with a Device or MotorBundle subclass matching the instrument's style and the reference module's conventions (one-import-per-line, labels as tuples, kind=\"omitted\" only on helpers, no kind= on normal signals), (6) verifies the file parses with ast.parse (not import), (7) appends an entry to id8_e/configs/devices.yml matching the file's existing entry shape (built-in classes use prefix/read_pv/write_pv per yaml_entry_formats.md, custom classes use whatever __init__ takes). No connection to a running IOC at any point. Final report names the Python file path, shows the appended YAML entry inline, and lists the chosen PVs with reasoning for any inferred component types."
+    },
+    {
+      "id": 2,
+      "name": "only-ioc-given-must-ask-for-bits",
+      "prompt": "Wrap the urRobot EPICS IOC at /Users/ecodrea/epics_iocs/urRobot in an ophyd device.",
+      "expected_output": "Skill recognizes the BITS repo is missing and asks for it before doing anything else. Does NOT default to a guessed package or write any files until the user supplies the BITS repo and (if more than one src/<package>/ exists) picks the target instrument package. Once both are supplied, follows the same flow as eval 1."
+    },
+    {
+      "id": 3,
+      "name": "vague-bridging-prompt",
+      "prompt": "I have an EPICS IOC and a BITS instrument package. I'd like to be able to use the IOC's PVs from the BITS instrument. Help.",
+      "expected_output": "Skill triggers on the bridging intent (even though the user didn't say 'ophyd' or 'skill') and asks for both the IOC path and the BITS repo path before doing anything else. After the user supplies both, runs the standard flow including the propose-then-confirm PV picker."
+    },
+    {
+      "id": 4,
+      "name": "instrument-uses-ophyd-async",
+      "prompt": "Add a device for the IOC at /tmp/some_ioc to my instrument at /tmp/instrument_pkg/src/async_instrument. The instrument's existing device modules import from ophyd_async.",
+      "expected_output": "In step 2, skill detects ophyd-async imports in the existing <async_instrument>/devices/*.py modules and generates the new module in ophyd-async style — NOT classic threaded ophyd. The reference module in references/reference_module.py is ignored because the instrument has an established pattern. If any existing module mixes flavors, skill stops and asks before guessing."
+    },
+    {
+      "id": 5,
+      "name": "user-rejects-proposed-pv-set",
+      "prompt": "Make an ophyd device for /tmp/big_ioc and put it in /tmp/bits/src/inst. The deployed prefix is BIG:.",
+      "expected_output": "Skill runs the parser, proposes a curated PV set with reasoning. User responds 'no, I only want the motor PVs and the temperature setpoint'. Skill honors the narrower selection without re-proposing, writes a device with only those PVs, and the report explicitly notes which proposed PVs were dropped at the user's request."
+    }
+  ]
+}
